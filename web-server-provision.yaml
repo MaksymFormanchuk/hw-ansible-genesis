@@ -1,0 +1,101 @@
+- hosts: IaC
+  remote_user: ubuntu
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: Updating packages
+      apt:
+        update_cache: yes
+        name: "*"
+        state: latest
+    
+    - name: Updating all packages to their latest version
+      ansible.builtin.apt:
+        name: "*"
+        state: latest
+
+    - name: Installing dependencies and git
+      apt:
+        pkg:
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - htop
+          - git
+          - python3-pip
+          - python3-setuptools 
+          - software-properties-common
+          - apt-transport-https
+      
+    - name: Installing apt key
+      ansible.builtin.apt_key:
+        url: "https://download.docker.com/linux/ubuntu/gpg"
+        state: present
+        keyring: /etc/apt/trusted.gpg.d/docker.gpg
+
+    - name: Installing docker repo
+      apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/docker.gpg] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} edge"
+        state: present
+        filename: docker
+
+
+    - name: Installing docker engine
+      apt:
+        update_cache: yes
+        pkg:
+          - docker-ce
+
+
+    - name: Downloading docker-compose setup file
+      get_url:
+        url: https://github.com/docker/compose/releases/download/v2.6.0/docker-compose-linux-x86_64
+        dest: /usr/local/bin/docker-compose
+        mode: '775'
+
+    - name: Adding current ansible user to docker group 
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+
+    - name: Installing docker and docker compose
+      pip:
+        name:
+          - docker
+          - docker-compose
+
+    - name: Adding ssh key for working with git
+      copy:
+        src: /home/max/.ssh/id_rsa
+        dest: /home/ubuntu/.ssh/id_rsa
+        owner: ubuntu
+        group: ubuntu
+        mode: 0600
+    
+    - name: Ensuring github.com is a known host
+      lineinfile:
+        dest: /home/ubuntu/.ssh/known_hosts
+        create: yes
+        state: present
+        line: "{{ lookup('pipe', 'ssh-keyscan -t rsa github.com') }}"
+        regexp: "^github\\.com"
+
+    - name: Cloning git repo
+      ansible.builtin.git:
+        repo: https://github.com/MaksymFormanchuk/hw-python-flask-api.git
+        dest: /home/ubuntu/hw-python-flask-api
+        clone: yes
+        update: yes
+    
+    - name: Copying ennvironment file
+      copy:
+        src: /home/max/api_env/.env
+        dest: /home/ubuntu/hw-python-flask-api/.env
+
+    - name: Starting up dockerised flask api
+      community.docker.docker_compose:
+        state: present
+        project_src: "/home/ubuntu/hw-python-flask-api/"
